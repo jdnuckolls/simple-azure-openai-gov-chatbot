@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Simple Gov Chatbot</title>
+  <link rel="stylesheet" href="styles.css" />
+  <script src="https://aka.ms/csspeech/jsbrowserpackageraw"></script>
+</head>
+<body>
+  <div class="chatbot-container">
+
+    <div class="chatbot-header">
+      <img src="gov-ai-logo.png" class="govlogo" alt="Public Service Reimagined" />
+      <h1>Chat with your <span class="highlight">Data</span></h1>
+      <p class="subtitle">This chatbot is configured to answer your questions</p>
+    </div>
+
+    <div class="chatbot-body" id="chatbotBody">
+      <!-- Chat messages will appear here -->
+    </div>
+
+    <div class="chatbot-footer">
+      <input type="text" id="chatbotInput" placeholder="Type a message..." />
+      <button id="chatbotMic"><img src="mic.png" alt="Mic" title="Speak"/></button>
+      <button id="chatbotReset" title="Clear Chat">⟲</button>
+    </div>
+
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>

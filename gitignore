@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+
+# Environment variables
+.env
+
+# Build artifacts
+*.log
+*.zip
+*.tgz
+
+# macOS / Linux
+.DS_Store
+.idea/
+.vscode/
+
+# Optional local settings
+.env.local
+.env.production.local

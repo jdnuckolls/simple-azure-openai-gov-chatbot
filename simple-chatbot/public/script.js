@@ -1,6 +1,20 @@
+
 let chatHistory = [];
 let isListening = false;
 let recognizer;
+
+// Check if speech is enabled and hide mic if not
+fetch("/speech-enabled")
+  .then(res => res.json())
+  .then(data => {
+    if (!data.enabled) {
+      const micBtn = document.getElementById("chatbotMic");
+      if (micBtn) micBtn.style.display = "none";
+    }
+  })
+  .catch(err => {
+    console.warn("Speech setting check failed:", err);
+  });
 
 function handleKeyPress(event) {
   if (event.key === "Enter") sendUserMessage();
@@ -25,30 +39,26 @@ function sendUserMessage() {
       const reply = response.reply || "";
       const sources = response.data_points || [];
 
-      // List of fallback phrases to detect non-answers
       const fallbackPhrases = [
         "i don't know", "i’m not sure", "i am not sure",
         "unable to find", "not able to provide", "can't find",
         "no information available", "i do not have enough information",
-        "couldn't find the answer", // ← catch that Ohio example
-        "sorry, but i couldn’t find the answer",
-        "i couldn’t locate the answer",
-        "i'm here and ready to help", "how can i assist", "how can i help"
+        "couldn't find the answer", "sorry, but i couldn’t find the answer",
+        "i couldn’t locate the answer", "i'm here and ready to help",
+        "how can i assist", "how can i help"
       ];
-      
+
       const isFallback = fallbackPhrases.some(phrase =>
         reply.toLowerCase().includes(phrase)
-      );      
+      );
 
       let formattedReply = reply;
 
-      // Append citations ONLY if it's not a fallback
       if (!isFallback && sources.length > 0) {
-        // Deduplicate URLs
         const uniqueUrls = [...new Set(sources
           .filter(src => src.url && src.url.startsWith("http"))
           .map(src => src.url))];
-      
+
         if (uniqueUrls.length > 0) {
           formattedReply += "<br/><br/>For more information:<br/>";
           uniqueUrls.forEach((url, idx) => {
@@ -56,7 +66,6 @@ function sendUserMessage() {
           });
         }
       }
-      
 
       addMessage("bot", formattedReply);
       chatHistory.push(response.assistantMessage);
@@ -67,7 +76,6 @@ function sendUserMessage() {
       addMessage("bot", "⚠️ Something went wrong. Please try again.");
     });
 }
-
 
 function addMessage(sender, message, retryText = null) {
   const chatbotBody = document.getElementById("chatbotBody");
@@ -159,15 +167,29 @@ document.getElementById("chatbotMic").addEventListener("click", async (e) => {
       updateListeningIndicator(false);
       isListening = false;
 
-      if (result.reason === SpeechSDK.ResultReason.RecognizedSpeech) {
-        document.getElementById("chatbotInput").value = result.text;
-        sendUserMessage();
-      } else {
-        alert("Speech not recognized. Try again.");
+      console.log("Speech Result:", result);
+
+      switch (result.reason) {
+        case SpeechSDK.ResultReason.RecognizedSpeech:
+          document.getElementById("chatbotInput").value = result.text;
+          sendUserMessage();
+          break;
+        case SpeechSDK.ResultReason.NoMatch:
+          console.warn("❌ Speech could not be recognized.");
+          alert("Speech not recognized. Try again.");
+          break;
+        case SpeechSDK.ResultReason.Canceled:
+          const cancellation = SpeechSDK.CancellationDetails.fromResult(result);
+          console.error("❌ Canceled:", cancellation.reason, cancellation.errorDetails);
+          alert("Speech canceled: " + cancellation.reason);
+          break;
+        default:
+          alert("Unknown speech recognition result.");
       }
 
       recognizer.close();
     });
+
   } catch (err) {
     console.error("Speech recognition error:", err);
     micButton.classList.remove("active");

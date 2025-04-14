@@ -13,6 +13,7 @@ const port = process.env.PORT || 3000;
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'simple-chatbot', 'public')));
 
+
 // --------------------
 // Azure AI Search
 // --------------------
@@ -114,6 +115,11 @@ app.post('/chat', async (req, res) => {
 // --------------------
 // Speech Token Endpoint
 // --------------------
+
+app.get("/speech-enabled", (req, res) => {
+  res.json({ enabled: process.env.ENABLE_SPEECH === "true" });
+});
+
 app.get('/speech-token', async (req, res) => {
   const key = process.env.AZURE_SPEECH_KEY;
   const region = process.env.AZURE_SPEECH_REGION;

@@ -1,4 +1,3 @@
-
 let chatHistory = [];
 let isListening = false;
 let recognizer;
@@ -20,6 +19,12 @@ function handleKeyPress(event) {
   if (event.key === "Enter") sendUserMessage();
 }
 
+// Helper function to clean markdown code block markers from the assistant's reply
+function cleanResponse(responseText) {
+  // Remove code block markers such as "```html" and "```"
+  return responseText.replace(/```html|```/g, '').trim();
+}
+
 function sendUserMessage() {
   const input = document.getElementById("chatbotInput");
   const message = input.value.trim();
@@ -39,20 +44,11 @@ function sendUserMessage() {
       const reply = response.reply || "";
       const sources = response.data_points || [];
 
-      const fallbackPhrases = [
-        "i don't know", "i’m not sure", "i am not sure",
-        "unable to find", "not able to provide", "can't find",
-        "no information available", "i do not have enough information",
-        "couldn't find the answer", "sorry, but i couldn’t find the answer",
-        "i couldn’t locate the answer", "i'm here and ready to help",
-        "how can i assist", "how can i help"
-      ];
+      // Use a regex to reliably detect fallback responses.
+      const fallbackRegex = /i(?:'|’)?\s+(?:don(?:'|’)?t|do not|am not|couldn(?:'|’)?t)\s+(?:find|have)/i;
+      const isFallback = fallbackRegex.test(reply.toLowerCase());
 
-      const isFallback = fallbackPhrases.some(phrase =>
-        reply.toLowerCase().includes(phrase)
-      );
-
-      let formattedReply = reply;
+      let formattedReply = cleanResponse(reply); // Clean the markdown markers
 
       if (!isFallback && sources.length > 0) {
         const uniqueUrls = [...new Set(sources

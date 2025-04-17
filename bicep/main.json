@@ -5,64 +5,132 @@
     "_generator": {
       "name": "bicep",
       "version": "0.34.44.8038",
-      "templateHash": "1277303859025555539"
+      "templateHash": "5606550003851006462"
     }
   },
   "parameters": {
-    "siteName": {
+    "namePrefix": {
       "type": "string",
-      "defaultValue": "simpleragchat-app"
-    },
-    "hostingPlanName": {
-      "type": "string",
-      "defaultValue": "simpleragchat-plan"
+      "metadata": {
+        "description": "Prefix to be applied to all resource names, e.g., agency1"
+      }
     },
     "location": {
       "type": "string",
-      "defaultValue": "[resourceGroup().location]"
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Location for all resources"
+      }
     },
-    "skuName": {
+    "openAiDeploymentName": {
       "type": "string",
-      "defaultValue": "B1"
+      "defaultValue": "gpt-4o",
+      "metadata": {
+        "description": "Azure OpenAI Model deployment name (e.g., gpt-4o)"
+      }
+    },
+    "openAiEmbeddingModel": {
+      "type": "string",
+      "defaultValue": "text-embedding-ada-002",
+      "metadata": {
+        "description": "Azure OpenAI Model Embedding (e.g., text-embedding-ada-002)"
+      }
+    },
+    "openAiEndpoint": {
+      "type": "string",
+      "metadata": {
+        "description": "Azure OpenAI endpoint URL"
+      }
+    },
+    "openAiApiKey": {
+      "type": "securestring",
+      "metadata": {
+        "description": "Azure OpenAI API key"
+      }
+    },
+    "searchEndpoint": {
+      "type": "string",
+      "metadata": {
+        "description": "Azure Search endpoint URL"
+      }
+    },
+    "searchKey": {
+      "type": "securestring",
+      "metadata": {
+        "description": "Azure Search key"
+      }
+    },
+    "searchIndexName": {
+      "type": "string",
+      "metadata": {
+        "description": "Azure Search index name"
+      }
+    },
+    "semanticConfigName": {
+      "type": "string",
+      "metadata": {
+        "description": "Azure semantic configuration name"
+      }
+    },
+    "vectorProfileName": {
+      "type": "string",
+      "metadata": {
+        "description": "Azure vector profile name"
+      }
+    },
+    "speechKey": {
+      "type": "string",
+      "metadata": {
+        "description": "Azure Speech key"
+      }
+    },
+    "speechRegion": {
+      "type": "string",
+      "metadata": {
+        "description": "Azure Speech region"
+      }
     }
+  },
+  "variables": {
+    "appServicePlanName": "[format('appservice-{0}', parameters('namePrefix'))]",
+    "webAppName": "[format('webapp-{0}', parameters('namePrefix'))]",
+    "storageAccountName": "[toLower(format('storage{0}', uniqueString(resourceGroup().id, parameters('namePrefix'))))]",
+    "speechServiceName": "[format('speech-{0}', parameters('namePrefix'))]",
+    "aiSearchName": "[format('search-{0}', parameters('namePrefix'))]"
   },
   "resources": [
     {
       "type": "Microsoft.Web/serverfarms",
       "apiVersion": "2022-03-01",
-      "name": "[parameters('hostingPlanName')]",
+      "name": "[variables('appServicePlanName')]",
       "location": "[parameters('location')]",
       "sku": {
-        "name": "[parameters('skuName')]",
+        "name": "B1",
         "tier": "Basic"
-      },
-      "kind": "linux",
-      "properties": {
-        "reserved": true
       }
     },
     {
       "type": "Microsoft.Web/sites",
       "apiVersion": "2022-03-01",
-      "name": "[parameters('siteName')]",
+      "name": "[variables('webAppName')]",
       "location": "[parameters('location')]",
       "kind": "app,linux",
       "properties": {
-        "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', parameters('hostingPlanName'))]",
+        "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', variables('appServicePlanName'))]",
         "siteConfig": {
           "linuxFxVersion": "NODE|20-lts",
           "appSettings": [
             {
               "name": "AZURE_OPENAI_DEPLOYMENT_NAME",
-              "value": "gpt-4o"
+              "value": "[parameters('openAiDeploymentName')]"
             },
             {
               "name": "AZURE_OPENAI_ENDPOINT",
-              "value": "https://<your-openai>.openai.azure.com"
+              "value": "[parameters('openAiEndpoint')]"
             },
             {
               "name": "AZURE_OPENAI_API_KEY",
-              "value": "<azure-openai-key>"
+              "value": "[parameters('openAiApiKey')]"
             },
             {
               "name": "AZURE_OPENAI_CHATGPT_MODEL_CAPACITY",
@@ -70,7 +138,7 @@
             },
             {
               "name": "AZURE_EMBEDDING_MODEL",
-              "value": "text-embedding-ada-002"
+              "value": "[parameters('openAiEmbeddingModel')]"
             },
             {
               "name": "AZURE_OPENAI_EMBEDDINGS_MODEL_CAPACITY",
@@ -78,19 +146,19 @@
             },
             {
               "name": "AZURE_SEARCH_ENDPOINT",
-              "value": "https://<your-search>.search.windows.net"
+              "value": "[parameters('searchEndpoint')]"
             },
             {
               "name": "AZURE_SEARCH_KEY",
-              "value": "<search-key>"
+              "value": "[parameters('searchKey')]"
             },
             {
               "name": "AZURE_SEARCH_INDEX_NAME",
-              "value": "<index-name>"
+              "value": "[parameters('searchIndexName')]"
             },
             {
               "name": "AZURE_SEMANTIC_CONFIGURATION",
-              "value": "<your-semantic-config-name>"
+              "value": "[parameters('semanticConfigName')]"
             },
             {
               "name": "USE_VECTOR_SEARCH",
@@ -98,7 +166,7 @@
             },
             {
               "name": "AZURE_VECTOR_PROFILE",
-              "value": "<your-vector-profile-name>"
+              "value": "[parameters('vectorProfileName')]"
             },
             {
               "name": "MAX_SOURCE_CHARACTERS",
@@ -110,11 +178,11 @@
             },
             {
               "name": "AZURE_SPEECH_KEY",
-              "value": "<speech-key>"
+              "value": "[parameters('speechKey')]"
             },
             {
               "name": "AZURE_SPEECH_REGION",
-              "value": "<your-region>"
+              "value": "[parameters('speechRegion')]"
             },
             {
               "name": "AZURE_OPENAI_INSTRUCTIONS",
@@ -140,14 +208,48 @@
         }
       },
       "dependsOn": [
-        "[resourceId('Microsoft.Web/serverfarms', parameters('hostingPlanName'))]"
+        "[resourceId('Microsoft.Web/serverfarms', variables('appServicePlanName'))]"
       ]
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts",
+      "apiVersion": "2022-09-01",
+      "name": "[variables('storageAccountName')]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "Standard_LRS"
+      },
+      "kind": "StorageV2"
+    },
+    {
+      "type": "Microsoft.CognitiveServices/accounts",
+      "apiVersion": "2023-05-01",
+      "name": "[variables('speechServiceName')]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "S0"
+      },
+      "kind": "SpeechServices",
+      "properties": {}
+    },
+    {
+      "type": "Microsoft.Search/searchServices",
+      "apiVersion": "2023-11-01",
+      "name": "[variables('aiSearchName')]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "standard"
+      },
+      "properties": {
+        "replicaCount": 1,
+        "partitionCount": 1
+      }
     }
   ],
   "outputs": {
-    "siteUrl": {
+    "webAppEndpoint": {
       "type": "string",
-      "value": "[format('https://{0}.azurewebsites.net', parameters('siteName'))]"
+      "value": "[format('https://{0}', reference(resourceId('Microsoft.Web/sites', variables('webAppName')), '2022-03-01').defaultHostName)]"
     }
   }
 }

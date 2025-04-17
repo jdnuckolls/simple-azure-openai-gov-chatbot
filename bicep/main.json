@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.34.44.8038",
-      "templateHash": "5606550003851006462"
+      "templateHash": "13227560851844330362"
     }
   },
   "parameters": {
@@ -107,6 +107,10 @@
       "sku": {
         "name": "B1",
         "tier": "Basic"
+      },
+      "kind": "linux",
+      "properties": {
+        "reserved": true
       }
     },
     {
@@ -122,15 +126,15 @@
           "appSettings": [
             {
               "name": "AZURE_OPENAI_DEPLOYMENT_NAME",
-              "value": "[parameters('openAiDeploymentName')]"
+              "value": "gpt-4o"
             },
             {
               "name": "AZURE_OPENAI_ENDPOINT",
-              "value": "[parameters('openAiEndpoint')]"
+              "value": "https://your-openai.openai.azure.com"
             },
             {
               "name": "AZURE_OPENAI_API_KEY",
-              "value": "[parameters('openAiApiKey')]"
+              "value": "<azure-openai-key>"
             },
             {
               "name": "AZURE_OPENAI_CHATGPT_MODEL_CAPACITY",
@@ -138,7 +142,7 @@
             },
             {
               "name": "AZURE_EMBEDDING_MODEL",
-              "value": "[parameters('openAiEmbeddingModel')]"
+              "value": "text-embedding-ada-002"
             },
             {
               "name": "AZURE_OPENAI_EMBEDDINGS_MODEL_CAPACITY",
@@ -146,19 +150,19 @@
             },
             {
               "name": "AZURE_SEARCH_ENDPOINT",
-              "value": "[parameters('searchEndpoint')]"
+              "value": "https://your-search.search.windows.net"
             },
             {
               "name": "AZURE_SEARCH_KEY",
-              "value": "[parameters('searchKey')]"
+              "value": "<search-key>"
             },
             {
               "name": "AZURE_SEARCH_INDEX_NAME",
-              "value": "[parameters('searchIndexName')]"
+              "value": "<index-name>"
             },
             {
               "name": "AZURE_SEMANTIC_CONFIGURATION",
-              "value": "[parameters('semanticConfigName')]"
+              "value": "<your-semantic-config-name>"
             },
             {
               "name": "USE_VECTOR_SEARCH",
@@ -166,7 +170,7 @@
             },
             {
               "name": "AZURE_VECTOR_PROFILE",
-              "value": "[parameters('vectorProfileName')]"
+              "value": "<your-vector-profile-name>"
             },
             {
               "name": "MAX_SOURCE_CHARACTERS",
@@ -178,11 +182,11 @@
             },
             {
               "name": "AZURE_SPEECH_KEY",
-              "value": "[parameters('speechKey')]"
+              "value": "<speech-key>"
             },
             {
               "name": "AZURE_SPEECH_REGION",
-              "value": "[parameters('speechRegion')]"
+              "value": "<your-region>"
             },
             {
               "name": "AZURE_OPENAI_INSTRUCTIONS",

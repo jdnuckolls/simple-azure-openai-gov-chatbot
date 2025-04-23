@@ -15,14 +15,6 @@ A production-ready chatbot that uses:
 
 ---
 
-## 🚀 Click to Deploy
-
-You can deploy this chatbot app directly into your Azure subscription:
-
-[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fjdnuckolls%2Fsimple-azure-openai-gov-chatbot%2Fmain%2Fbicep%2Fmain.json)
-
----
-
 ## 📋 Prerequisites
 
 ### Azure Resources

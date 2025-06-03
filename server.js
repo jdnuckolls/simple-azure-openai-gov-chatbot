@@ -1,212 +1,241 @@
 import 'dotenv/config';
 import express from 'express';
 import axios from 'axios';
+import cors from 'cors';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
+import { franc } from 'franc-min';
+
+// ── Language mapping (for “reply in the same language”) ────────────────────────
+const LANG_MAP = {
+  eng: { name: 'English' },
+  spa: { name: 'Spanish' },
+  zho: { name: 'Chinese' },
+  yue: { name: 'Cantonese' },
+  vie: { name: 'Vietnamese' },
+  tgl: { name: 'Tagalog' },
+  ara: { name: 'Arabic' },
+  fra: { name: 'French' },
+  rus: { name: 'Russian' },
+  kor: { name: 'Korean' },
+  deu: { name: 'German' },
+  ita: { name: 'Italian' },
+  por: { name: 'Portuguese' },
+  jpn: { name: 'Japanese' },
+  pol: { name: 'Polish' },
+  hin: { name: 'Hindi' },
+  guj: { name: 'Gujarati' },
+  ben: { name: 'Bengali' },
+  pan: { name: 'Punjabi' },
+  urd: { name: 'Urdu' },
+  ukr: { name: 'Ukrainian' },
+  heb: { name: 'Hebrew' },
+  ell: { name: 'Greek' },
+  tha: { name: 'Thai' },
+  khm: { name: 'Khmer' },
+  lao: { name: 'Lao' },
+  som: { name: 'Somali' },
+  hmn: { name: 'Hmong' },
+  tam: { name: 'Tamil' },
+  amh: { name: 'Amharic' },
+  tur: { name: 'Turkish' },
+  per: { name: 'Persian (Farsi)' },
+  pas: { name: 'Pashto' },
+};
+
+// ────────────────────────────────────────────────────────────────────────────────
+// Boilerplate Setup
+// ────────────────────────────────────────────────────────────────────────────────
+console.log('*** Starting RAG Server ***');
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Ensure a writable temp directory
+const tempDir = '/home/temp';
+if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+process.env.TMPDIR = tempDir;
 
 const app = express();
 const port = process.env.PORT || 3000;
 
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'simple-chatbot', 'public')));
+app.use(cors());
 
-// Logging model capacities and vector profile for debugging.
-console.log(`ChatGPT Capacity: ${process.env.AZURE_OPENAI_CHATGPT_MODEL_CAPACITY} tokens`);
-console.log(`Embeddings Capacity: ${process.env.AZURE_OPENAI_EMBEDDINGS_MODEL_CAPACITY} tokens`);
-console.log(`Semantic Configuration: ${process.env.AZURE_SEMANTIC_CONFIGURATION}`);
-console.log(`Vector Profile: ${process.env.AZURE_VECTOR_PROFILE}`);
-console.log(`Use Vector Search: ${process.env.USE_VECTOR_SEARCH}`);
+// ─── SPEECH-ENABLED ENDPOINT (optional) ────────────────────────────────────────
+app.get('/speech-enabled', (req, res) => {
+  res.json({ enabled: process.env.ENABLE_SPEECH === 'true' });
+});
 
-// --------------------
-// Azure OpenAI Embedding API Call
-// --------------------
+// ─── AZURE OPENAI EMBEDDING HELPER ─────────────────────────────────────────────
 async function getQueryEmbedding(query) {
-  const embeddingEndpoint = `${process.env.AZURE_OPENAI_ENDPOINT}/openai/deployments/${process.env.AZURE_EMBEDDING_MODEL}/embeddings?api-version=2023-06-01-preview`;
-  
-  try {
-    const response = await axios.post(
-      embeddingEndpoint,
-      { input: query },
-      {
-        headers: {
-          "Content-Type": "application/json",
-          "api-key": process.env.AZURE_OPENAI_API_KEY
-        }
-      }
-    );
-    const embedding = response.data.data[0].embedding;
-    console.log("Computed embedding (first 5 values):", embedding.slice(0, 5));
-    return embedding;
-  } catch (error) {
-    console.error("Embedding API error:", error.response?.data || error.message);
-    throw error;
-  }
-}
-
-// --------------------
-// Azure AI Search
-// --------------------
-async function searchAzureAISearch(query, topK) {
-  const searchEndpoint = `${process.env.AZURE_SEARCH_ENDPOINT}/indexes/${process.env.AZURE_SEARCH_INDEX_NAME}/docs/search?api-version=2023-07-01-preview`;
-
-  // Base request body always uses semantic search.
-  const requestBody = {
-    queryType: "semantic",
-    queryLanguage: "en-us",
-    semanticConfiguration: process.env.AZURE_SEMANTIC_CONFIGURATION,
-    search: query,
-    top: topK
-  };
-
-  // If vector search is enabled, compute the embedding and add the vector parameter.
-  if (process.env.USE_VECTOR_SEARCH === "true") {
-    try {
-      const embedding = await getQueryEmbedding(query);
-      console.log("Using vector search with embedding: yes");
-      requestBody.vector = {
-        value: embedding,
-        fields: "embedding", // Must match your index's vector field.
-        k: topK
-      };
-      // Optionally, you might later want to leverage the vector profile information within your index.
-      // However, the vector profile is configured at the index level and does not need to be passed in the request.
-    } catch (error) {
-      console.error("Failed to compute query embedding, proceeding with semantic search only.");
-    }
-  }
-
-  const response = await axios.post(
-    searchEndpoint,
-    requestBody,
+  const url = `${process.env.AZURE_OPENAI_ENDPOINT}/openai/deployments/${process.env.AZURE_EMBEDDING_MODEL}/embeddings?api-version=2023-06-01-preview`;
+  const { data } = await axios.post(
+    url,
+    { input: query },
     {
       headers: {
-        "Content-Type": "application/json",
-        "api-key": process.env.AZURE_SEARCH_KEY,
+        'Content-Type': 'application/json',
+        'api-key': process.env.AZURE_OPENAI_API_KEY,
       },
     }
   );
-
-  return response.data.value || [];
+  return data.data[0].embedding;
 }
 
-// --------------------
-// Main Chat Endpoint
-// --------------------
+// ─── AZURE AI SEARCH (SEMANTIC + VECTOR; no answers/captions) ─────────────────
+async function searchAzureAISearch(query, topK) {
+  const endpoint = `${process.env.AZURE_SEARCH_ENDPOINT}/indexes/${process.env.AZURE_SEARCH_INDEX_NAME}/docs/search?api-version=2023-07-01-preview`;
+
+  // We are not sending "answers" or "captions" here.
+  const body = {
+    queryType: 'semantic',
+    queryLanguage: 'en-us',
+    semanticConfiguration: process.env.AZURE_SEMANTIC_CONFIGURATION?.trim() || 'default',
+    search: query,
+    top: topK,
+  };
+
+  let vectorUsed = false;
+  if (process.env.USE_VECTOR_SEARCH === 'true') {
+    try {
+      const embedding = await getQueryEmbedding(query);
+      body.vector = { value: embedding, fields: 'embedding', k: topK };
+      vectorUsed = true;
+    } catch (err) {
+      console.warn('Vector embedding failed; falling back to semantic only.', err);
+    }
+  }
+
+  if (process.env.DEBUG_LOGGING === 'true') {
+    console.log('🔍 Search payload:', JSON.stringify({ ...body, vector: '<<omitted>>' }, null, 2));
+  }
+
+  const { data } = await axios.post(endpoint, body, {
+    headers: {
+      'Content-Type': 'application/json',
+      'api-key': process.env.AZURE_SEARCH_KEY,
+    },
+  });
+
+  return { results: data.value || [], vectorUsed };
+}
+
+// ─── /chat ENDPOINT ───────────────────────────────────────────────────────────
 app.post('/chat', async (req, res) => {
   const { message, history = [] } = req.body;
-
   const maxTurns = parseInt(process.env.MAX_TURNS) || 3;
-  const topK = parseInt(process.env.TOP_K) || 3;
-  const temperature = parseFloat(process.env.OPENAI_TEMPERATURE) || 0.5;
-  const max_tokens = parseInt(process.env.OPENAI_MAX_TOKENS) || 500;
-  // Maximum characters per document source to avoid oversized prompts.
-  const MAX_SOURCE_CHARACTERS = parseInt(process.env.MAX_SOURCE_CHARACTERS) || 1500;
+  const topK = parseInt(process.env.TOP_K) || 5; // default to 5 results
+  const max_tokens = parseInt(process.env.OPENAI_MAX_TOKENS) || 300;
+  const MAX_SOURCE_CHARACTERS = parseInt(process.env.MAX_SOURCE_CHARACTERS) || 20000;
+  const FALLBACK_MESSAGE = process.env.FALLBACK_MESSAGE?.trim() ||
+    "I'm sorry, but I couldn't find the answer to that question in the documents available to this agency.";
+
+  // ─── 1) Detect user language (for “reply in same language”) ────────────────
+  let detectedLang = franc(message || '');
+  if (!LANG_MAP[detectedLang]) detectedLang = 'eng';
+  const userLangName = LANG_MAP[detectedLang].name;
 
   try {
-    const searchResults = await searchAzureAISearch(message, topK);
-    
-    // Construct source string with trimmed content.
-    const sources = searchResults.map(doc => {
-      let content = doc.content;
-      if (content.length > MAX_SOURCE_CHARACTERS) {
-        content = content.substring(0, MAX_SOURCE_CHARACTERS) + '...';
-      }
-      return `Source: ${doc.url}\n${content}`;
-    }).join("\n\n---\n\n");
+    // ─── 2) Query Azure Search (no answers/captions) ─────────────────────────
+    const { results: searchResults, vectorUsed } = await searchAzureAISearch(message, topK);
 
-    // Deduplicate citations based on URL.
-    const seen = new Set();
-    const citations = [];
-    searchResults.forEach(doc => {
-      if (doc.url && !seen.has(doc.url)) {
-        seen.add(doc.url);
-        citations.push({ url: doc.url });
-      }
-    });
-    
-    // Build the base prompt with your assistant instructions.
-    const systemInstructions = process.env.AZURE_OPENAI_INSTRUCTIONS;
-    const basePrompt = `${systemInstructions}\n\nUse only the information from the sources below to answer. If no answer is found, say you don’t know.\n\n`;
-    
-    // Estimate token usage (roughly 1 token ≈ 4 characters) and trim if necessary.
-    let combinedSources = sources;
-    const estimatedTokens = (basePrompt.length + combinedSources.length) / 4;
-    const maxInputTokens = 3000; // Safe threshold.
-    if (estimatedTokens > maxInputTokens) {
-      const allowedCharLength = maxInputTokens * 4 - basePrompt.length;
-      combinedSources = combinedSources.substring(0, allowedCharLength) + '...';
-    }
-    
-    const prompt = basePrompt + combinedSources;
-
-    const trimmedHistory = history.slice(-maxTurns * 2);
-    const messages = [
-      { role: "system", content: prompt },
-      ...trimmedHistory,
-      { role: "user", content: message }
-    ];
-
-    const response = await axios.post(
-      `${process.env.AZURE_OPENAI_ENDPOINT}/openai/deployments/${process.env.AZURE_OPENAI_DEPLOYMENT_NAME}/chat/completions?api-version=2023-05-15`,
-      {
-        messages,
-        temperature,
-        max_tokens
-      },
-      {
-        headers: {
-          "Content-Type": "application/json",
-          "api-key": process.env.AZURE_OPENAI_API_KEY
-        }
-      }
-    );
-
-    const reply = response.data.choices[0].message.content;
-
-    res.json({
-      reply,
-      assistantMessage: { role: "assistant", content: reply },
-      data_points: citations
-    });
-
-  } catch (error) {
-    const status = error.response?.status;
-    const errorMessage = error.response?.data?.error?.message;
-
-    if (status === 429) {
-      console.warn("⚠️ Rate limit hit:", errorMessage);
-      return res.status(429).json({
-        error: true,
-        reply: "⏳ We're getting a lot of requests right now. Please wait a moment and try again."
+    // ─── 3) If searchResults is empty, immediately return fallback + no citations
+    if (searchResults.length === 0) {
+      const reply = FALLBACK_MESSAGE;
+      return res.json({
+        vectorUsed: false,
+        reply,
+        assistantMessage: { role: 'assistant', content: reply },
+        citations: []
       });
     }
 
-    console.error("❌ Chat error:", errorMessage || error.message);
-    return res.status(500).json({
-      error: true,
-      reply: "⚠️ Something went wrong while generating a response."
+    // ─── 4) Build “sources” array from top hits ───────────────────────────────
+    let sources = searchResults.map(doc => {
+      let c = doc.content || '';
+      if (c.length > MAX_SOURCE_CHARACTERS) {
+        const t = c.slice(0, MAX_SOURCE_CHARACTERS);
+        const last = Math.max(t.lastIndexOf('.'), t.lastIndexOf('\n'), t.lastIndexOf(' '));
+        c = t.slice(0, last + 1).trim() + ' [...]';
+      }
+      return `Source: ${doc.url}\n${c}`;
+    }).join('\n\n---\n\n');
+
+    // ─── 5) Build system prompt with “reply in same language” rule ─────────────
+    let baseInstructions = process.env.AZURE_OPENAI_INSTRUCTIONS || 'You are a helpful assistant.';
+    if (!/language/i.test(baseInstructions)) {
+      baseInstructions =
+        `▪ Language rule – Always reply in the same language as the user's question (${userLangName}).\n\n`
+        + baseInstructions;
+    }
+    const basePrompt =
+      `${baseInstructions}\n\nUse only the info from sources. If no answer, say you don’t know.\n\n`;
+
+    // Trim sources if exceeding token budget
+    const maxInputTokens = 3000;
+    const est = (basePrompt.length + sources.length) / 4;
+    let sourcesTrimmed = sources;
+    if (est > maxInputTokens) {
+      const allowed = maxInputTokens * 4 - basePrompt.length;
+      const t = sources.slice(0, allowed);
+      const last = Math.max(t.lastIndexOf('.'), t.lastIndexOf('\n'), t.lastIndexOf(' '));
+      sourcesTrimmed = t.slice(0, last + 1).trim() + ' [...]';
+    }
+
+    const prompt = basePrompt + sourcesTrimmed;
+    const trimmedHistory = history.slice(-maxTurns * 2);
+    const messages = [
+      { role: 'system', content: prompt },
+      ...trimmedHistory
+      // Do not re-append the user’s latest turn, because `history` already includes it.
+    ];
+
+    // ─── 6) Call Azure OpenAI chat completion ─────────────────────────────────
+    const chatRes = await axios.post(
+      `${process.env.AZURE_OPENAI_ENDPOINT}/openai/deployments/${process.env.AZURE_OPENAI_DEPLOYMENT_NAME}/chat/completions?api-version=2023-05-15`,
+      { messages, temperature: 0.7, max_tokens },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'api-key': process.env.AZURE_OPENAI_API_KEY
+        }
+      }
+    );
+    const reply = chatRes.data.choices[0].message.content;
+
+    // ─── 7) Build citations list from searchResults ───────────────────────────
+    const seen = new Set();
+    const citationLinks = [];
+    for (const doc of searchResults) {
+      const uLower = doc.url.toLowerCase();
+      if (!seen.has(uLower)) {
+        seen.add(uLower);
+        citationLinks.push(`<a href="${doc.url}" target="_blank">Citation ${citationLinks.length + 1}</a>`);
+      }
+      if (citationLinks.length >= topK) break;
+    }
+
+    res.json({
+      vectorUsed,
+      reply,
+      assistantMessage: { role: 'assistant', content: reply },
+      citations: citationLinks
     });
+  } catch (err) {
+    console.error('❌ Unexpected error in /chat:', err);
+    res.status(500).json({ error: true, reply: '⚠️ An unexpected error occurred. Check server logs.' });
   }
 });
 
-// --------------------
-// Speech Token Endpoint
-// --------------------
-app.get("/speech-enabled", (req, res) => {
-  res.json({ enabled: process.env.ENABLE_SPEECH === "true" });
-});
-
+// ─── SPEECH TOKEN ENDPOINT ─────────────────────────────────────────────────────
 app.get('/speech-token', async (req, res) => {
   const key = process.env.AZURE_SPEECH_KEY;
   const region = process.env.AZURE_SPEECH_REGION;
-
-  if (!key || !region || process.env.ENABLE_SPEECH !== 'true') {
-    return res.status(403).json({ error: 'Speech service is disabled or missing credentials.' });
+  if (!key || !region) {
+    return res.status(500).json({ error: 'Speech service credentials missing' });
   }
-
   try {
     const response = await axios.post(
       `https://${region}.api.cognitive.microsoft.com/sts/v1.0/issueToken`,
@@ -218,16 +247,23 @@ app.get('/speech-token', async (req, res) => {
         }
       }
     );
-
     res.json({ token: response.data, region });
-
   } catch (err) {
-    console.error("Speech token error:", err.response?.data || err.message);
-    res.status(500).send('Failed to retrieve speech token');
+    console.error('Speech token error:', err.response?.data || err.message);
+    res.status(500).json({ error: 'Failed to fetch speech token' });
   }
 });
 
-// --------------------
-app.listen(port, () => {
-  console.log(`✅ Server is running at http://localhost:${port}`);
+// ─── CONFIG ENDPOINT ───────────────────────────────────────────────────────────
+app.get('/config', (req, res) => {
+  res.json({ fallbackMessage: process.env.FALLBACK_MESSAGE?.trim() || '' });
 });
+
+// ─── STATIC FILES & SPA FALLBACK ───────────────────────────────────────────────
+app.use(express.static(path.join(__dirname, 'public')));
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// ─── START SERVER ──────────────────────────────────────────────────────────────
+app.listen(port, () => console.log(`🚀 Server listening on http://localhost:${port}`));

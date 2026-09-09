@@ -1,7 +1,7 @@
 # Docs for the Azure Web Apps Deploy action: https://github.com/Azure/webapps-deploy
 # More GitHub Actions for Azure: https://github.com/Azure/actions
 
-name: Build and deploy Node.js app to Azure Web App - cuyahogawebapp
+name: Build and deploy standalone chatbot
 
 on:
   push:
@@ -19,15 +19,15 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Set up Node.js version
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: '20.x'
+          cache: 'npm'
 
-      - name: npm install (no test)
+      - name: Install dependencies and build
         run: |
-          npm install
+          npm ci
           npm run build --if-present
-          echo "Skipping tests for now"
 
 
       - name: Zip artifact for deployment

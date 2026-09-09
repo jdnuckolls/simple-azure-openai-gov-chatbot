@@ -6,6 +6,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { franc } from 'franc-min';
+import { DefaultAzureCredential } from '@azure/identity';
 
 // ── Language mapping (for “reply in the same language”) ────────────────────────
 const LANG_MAP = {
@@ -68,40 +69,99 @@ app.get('/speech-enabled', (req, res) => {
   res.json({ enabled: process.env.ENABLE_SPEECH === 'true' });
 });
 
-// ─── AZURE OPENAI EMBEDDING HELPER ─────────────────────────────────────────────
+const credential = process.env.AUTH_MODE === 'managed_identity'
+  ? new DefaultAzureCredential()
+  : null;
+
+async function authHeaders(service) {
+  const base = { 'Content-Type': 'application/json' };
+  if (process.env.AUTH_MODE === 'managed_identity') {
+    const scope = service === 'search'
+      ? 'https://search.azure.com/.default'
+      : 'https://cognitiveservices.azure.com/.default';
+    const token = await credential.getToken(scope);
+    return { ...base, Authorization: `Bearer ${token.token}` };
+  }
+  const key = service === 'search'
+    ? process.env.AZURE_SEARCH_KEY
+    : process.env.AZURE_OPENAI_API_KEY;
+  return { ...base, 'api-key': key };
+}
+
+function envFlag(name, defaultValue = false) {
+  const value = process.env[name];
+  if (value === undefined) return defaultValue;
+  return value.toLowerCase() === 'true';
+}
+
+function searchField(name, defaultValue) {
+  return process.env[name]?.trim() || defaultValue;
+}
+
+// ─── AZURE OPENAI EMBEDDING HELPER (LEGACY FALLBACK) ──────────────────────────
 async function getQueryEmbedding(query) {
-  const url = `${process.env.AZURE_OPENAI_ENDPOINT}/openai/deployments/${process.env.AZURE_EMBEDDING_MODEL}/embeddings?api-version=2023-06-01-preview`;
+  const embeddingDeployment = process.env.AZURE_OPENAI_EMBEDDING_DEPLOYMENT
+    || process.env.AZURE_EMBEDDING_MODEL;
+  const apiVersion = process.env.AZURE_OPENAI_API_VERSION || '2024-02-15-preview';
+  const url = `${process.env.AZURE_OPENAI_ENDPOINT}/openai/deployments/${embeddingDeployment}/embeddings?api-version=${apiVersion}`;
   const { data } = await axios.post(
     url,
     { input: query },
-    {
-      headers: {
-        'Content-Type': 'application/json',
-        'api-key': process.env.AZURE_OPENAI_API_KEY,
-      },
-    }
+    { headers: await authHeaders('openai') }
   );
   return data.data[0].embedding;
 }
 
 // ─── AZURE AI SEARCH (SEMANTIC + VECTOR; no answers/captions) ─────────────────
 async function searchAzureAISearch(query, topK) {
-  const endpoint = `${process.env.AZURE_SEARCH_ENDPOINT}/indexes/${process.env.AZURE_SEARCH_INDEX_NAME}/docs/search?api-version=2023-07-01-preview`;
+  const searchApiVersion = process.env.AZURE_SEARCH_API_VERSION || '2024-07-01';
+  const endpoint = `${process.env.AZURE_SEARCH_ENDPOINT}/indexes/${process.env.AZURE_SEARCH_INDEX_NAME}/docs/search?api-version=${searchApiVersion}`;
+  const vectorField = searchField('AZURE_VECTOR_FIELD', 'content_vector');
+  const contentField = searchField('AZURE_CONTENT_FIELD', 'content');
+  const titleField = searchField('AZURE_TITLE_FIELD', 'title');
+  const urlField = searchField('AZURE_URL_FIELD', 'url');
+  const filter = process.env.AZURE_SEARCH_FILTER?.trim();
 
-  // We are not sending "answers" or "captions" here.
   const body = {
     queryType: 'semantic',
     queryLanguage: 'en-us',
     semanticConfiguration: process.env.AZURE_SEMANTIC_CONFIGURATION?.trim() || 'default',
     search: query,
     top: topK,
+    select: [
+      contentField,
+      titleField,
+      urlField,
+      'canonical_url',
+      'site',
+      'path',
+      'content_type',
+      'source_engine',
+      'crawl_timestamp',
+      'last_modified'
+    ].join(',')
   };
+  if (filter) body.filter = filter;
 
   let vectorUsed = false;
-  if (process.env.USE_VECTOR_SEARCH === 'true') {
+  if (envFlag('USE_VECTOR_SEARCH', true)) {
     try {
-      const embedding = await getQueryEmbedding(query);
-      body.vector = { value: embedding, fields: 'embedding', k: topK };
+      if (envFlag('USE_SEARCH_INTEGRATED_VECTORIZATION', true)) {
+        body.vectorQueries = [{
+          kind: 'text',
+          text: query,
+          fields: vectorField,
+          k: topK
+        }];
+      } else {
+        const embedding = await getQueryEmbedding(query);
+        body.vectorQueries = [{
+          kind: 'vector',
+          vector: embedding,
+          fields: vectorField,
+          k: topK
+        }];
+      }
       vectorUsed = true;
     } catch (err) {
       console.warn('Vector embedding failed; falling back to semantic only.', err);
@@ -109,17 +169,26 @@ async function searchAzureAISearch(query, topK) {
   }
 
   if (process.env.DEBUG_LOGGING === 'true') {
-    console.log('🔍 Search payload:', JSON.stringify({ ...body, vector: '<<omitted>>' }, null, 2));
+    console.log('Search payload:', JSON.stringify({ ...body, vectorQueries: body.vectorQueries ? '<<omitted>>' : undefined }, null, 2));
   }
 
   const { data } = await axios.post(endpoint, body, {
-    headers: {
-      'Content-Type': 'application/json',
-      'api-key': process.env.AZURE_SEARCH_KEY,
-    },
+    headers: await authHeaders('search'),
   });
 
   return { results: data.value || [], vectorUsed };
+}
+
+function docValue(doc, envName, defaultField) {
+  return doc[searchField(envName, defaultField)];
+}
+
+function sourceLabel(doc) {
+  const title = docValue(doc, 'AZURE_TITLE_FIELD', 'title') || 'Untitled source';
+  const url = docValue(doc, 'AZURE_URL_FIELD', 'url') || doc.canonical_url || '';
+  const site = doc.site || '';
+  const pathValue = doc.path || '';
+  return [title, site, pathValue, url].filter(Boolean).join(' | ');
 }
 
 // ─── /chat ENDPOINT ───────────────────────────────────────────────────────────
@@ -154,13 +223,13 @@ app.post('/chat', async (req, res) => {
 
     // ─── 4) Build “sources” array from top hits ───────────────────────────────
     let sources = searchResults.map(doc => {
-      let c = doc.content || '';
+      let c = docValue(doc, 'AZURE_CONTENT_FIELD', 'content') || '';
       if (c.length > MAX_SOURCE_CHARACTERS) {
         const t = c.slice(0, MAX_SOURCE_CHARACTERS);
         const last = Math.max(t.lastIndexOf('.'), t.lastIndexOf('\n'), t.lastIndexOf(' '));
         c = t.slice(0, last + 1).trim() + ' [...]';
       }
-      return `Source: ${doc.url}\n${c}`;
+      return `Source: ${sourceLabel(doc)}\n${c}`;
     }).join('\n\n---\n\n');
 
     // ─── 5) Build system prompt with “reply in same language” rule ─────────────
@@ -193,15 +262,11 @@ app.post('/chat', async (req, res) => {
     ];
 
     // ─── 6) Call Azure OpenAI chat completion ─────────────────────────────────
+    const chatApiVersion = process.env.AZURE_OPENAI_API_VERSION || '2024-02-15-preview';
     const chatRes = await axios.post(
-      `${process.env.AZURE_OPENAI_ENDPOINT}/openai/deployments/${process.env.AZURE_OPENAI_DEPLOYMENT_NAME}/chat/completions?api-version=2023-05-15`,
-      { messages, temperature: 0.7, max_tokens },
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          'api-key': process.env.AZURE_OPENAI_API_KEY
-        }
-      }
+      `${process.env.AZURE_OPENAI_ENDPOINT}/openai/deployments/${process.env.AZURE_OPENAI_DEPLOYMENT_NAME}/chat/completions?api-version=${chatApiVersion}`,
+      { messages, temperature: parseFloat(process.env.OPENAI_TEMPERATURE) || 0.7, max_tokens },
+      { headers: await authHeaders('openai') }
     );
     const reply = chatRes.data.choices[0].message.content;
 
@@ -209,10 +274,13 @@ app.post('/chat', async (req, res) => {
     const seen = new Set();
     const citationLinks = [];
     for (const doc of searchResults) {
-      const uLower = doc.url.toLowerCase();
+      const url = docValue(doc, 'AZURE_URL_FIELD', 'url') || doc.canonical_url;
+      if (!url) continue;
+      const uLower = url.toLowerCase();
       if (!seen.has(uLower)) {
         seen.add(uLower);
-        citationLinks.push(`<a href="${doc.url}" target="_blank">Citation ${citationLinks.length + 1}</a>`);
+        const label = docValue(doc, 'AZURE_TITLE_FIELD', 'title') || doc.site || `Citation ${citationLinks.length + 1}`;
+        citationLinks.push(`<a href="${url}" target="_blank">${label}</a>`);
       }
       if (citationLinks.length >= topK) break;
     }

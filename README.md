@@ -47,7 +47,7 @@ The app defaults to the chunk index created by the crawler repo's `infra/azure-s
 | `site`, `path`, `content_type`, `source_engine` | Metadata for filters and context. |
 | `crawl_timestamp`, `last_modified` | Freshness metadata. |
 
-See [Crawler integration](docs/crawler-integration.md) for details.
+See [Crawler integration](docs/crawler-integration.md) for index details and [Three-repo architecture](docs/architecture.md) for the end-to-end portfolio story.
 
 ## Local setup
 
